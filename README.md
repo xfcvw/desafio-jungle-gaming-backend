@@ -51,7 +51,7 @@ bun run test:unit
 RUN_WORKERS=false bun run test:integration
 ```
 
-Os testes de integração usam PostgreSQL e LocalStack reais e cobrem cinquenta entregas idênticas em paralelo, três instâncias da API, duas apostas disputando saldo, reconciliação do ledger, redelivery deduplicado pela Inbox e dois publishers concorrentes na Outbox.
+Os testes de integração usam PostgreSQL e LocalStack reais e cobrem cinquenta entregas idênticas em paralelo, três instâncias da API, duas apostas disputando saldo, reconciliação do ledger, redelivery deduplicado pela Inbox, dois publishers concorrentes na Outbox e encaminhamento para DLQ após falha transitória repetida.
 
 ## Endpoints
 

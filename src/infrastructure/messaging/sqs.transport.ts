@@ -25,14 +25,15 @@ export class SqsTransport {
   });
 
   private readonly wagersQueueUrl = process.env.WAGER_TRANSACTIONS_QUEUE_URL ?? `${this.endpoint}/${ACCOUNT_ID}/wager-transactions.fifo`;
+  private readonly wagersDlqQueueUrl = process.env.WAGER_TRANSACTIONS_DLQ_QUEUE_URL ?? `${this.endpoint}/${ACCOUNT_ID}/wager-transactions-dlq.fifo`;
   private readonly eventsQueueUrl = process.env.WAGER_EVENTS_QUEUE_URL ?? `${this.endpoint}/${ACCOUNT_ID}/wager-events.fifo`;
 
   public async receiveWagers(): Promise<Message[]> {
     const response = await this.client.send(new ReceiveMessageCommand({
       QueueUrl: this.wagersQueueUrl,
       MaxNumberOfMessages: 10,
-      WaitTimeSeconds: 10,
-      VisibilityTimeout: 30,
+      WaitTimeSeconds: Number(process.env.SQS_WAIT_TIME_SECONDS ?? 10),
+      VisibilityTimeout: Number(process.env.SQS_VISIBILITY_TIMEOUT ?? 30),
       MessageSystemAttributeNames: ['ApproximateReceiveCount'],
     }));
     return response.Messages ?? [];
@@ -70,6 +71,16 @@ export class SqsTransport {
   /** Usado apenas pela suíte de integração para isolar execuções entre si. */
   public async purgeWagersForTest(): Promise<void> {
     await this.client.send(new PurgeQueueCommand({ QueueUrl: this.wagersQueueUrl }));
+    await this.client.send(new PurgeQueueCommand({ QueueUrl: this.wagersDlqQueueUrl }));
+  }
+
+  public async receiveWagerDeadLetters(): Promise<Message[]> {
+    const response = await this.client.send(new ReceiveMessageCommand({
+      QueueUrl: this.wagersDlqQueueUrl,
+      MaxNumberOfMessages: 10,
+      WaitTimeSeconds: Number(process.env.SQS_WAIT_TIME_SECONDS ?? 10),
+    }));
+    return response.Messages ?? [];
   }
 
   public async assertReachable(): Promise<void> {

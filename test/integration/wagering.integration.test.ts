@@ -23,6 +23,8 @@ describe('integração do processador de apostas', () => {
 
   beforeAll(async () => {
     process.env.RUN_WORKERS = 'false';
+    process.env.SQS_WAIT_TIME_SECONDS = '0';
+    process.env.SQS_VISIBILITY_TIMEOUT = '0';
     for (let index = 0; index < 3; index += 1) {
       const module = await Test.createTestingModule({ imports: [AppModule] }).compile();
       const app = module.createNestApplication();
@@ -107,6 +109,20 @@ describe('integração do processador de apostas', () => {
       'select count(*) filter (where published_at is null)::text as pending from outbox_messages',
     );
     expect(summary?.pending).toBe('0');
+  }, 60_000);
+
+  test('encaminha falha transitória repetida para a DLQ', async () => {
+    const transport = apps[0]!.get(SqsTransport);
+    const consumer = apps[1]!.get(WagerConsumerService);
+    const messageId = randomUUID();
+    const nonexistentWalletId = randomUUID();
+    const externalTransactionId = `bet-dlq-${randomUUID()}`;
+    const data = { ...wager(nonexistentWalletId, 'jogador-inexistente', externalTransactionId, '10.00'), idempotencyKey: `provider-a:${externalTransactionId}` };
+    const envelope = { messageId, type: 'WagerTransactionRequested', occurredAt: new Date().toISOString(), data };
+    await transport.publishWagerRequest(envelope, nonexistentWalletId, randomUUID());
+    for (let attempt = 0; attempt < 8; attempt += 1) await consumer.consumeOnce();
+    const deadLetters = await transport.receiveWagerDeadLetters();
+    expect(deadLetters.some((message) => message.Body?.includes(messageId))).toBe(true);
   }, 60_000);
 
   async function createWallet(playerId: string, amount: string): Promise<{ id: string }> {
