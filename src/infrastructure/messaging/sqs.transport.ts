@@ -2,6 +2,7 @@ import {
   ChangeMessageVisibilityCommand,
   DeleteMessageCommand,
   GetQueueAttributesCommand,
+  PurgeQueueCommand,
   ReceiveMessageCommand,
   SendMessageCommand,
   SQSClient,
@@ -64,6 +65,11 @@ export class SqsTransport {
       MessageGroupId: walletId,
       MessageDeduplicationId: deduplicationId,
     }));
+  }
+
+  /** Usado apenas pela suíte de integração para isolar execuções entre si. */
+  public async purgeWagersForTest(): Promise<void> {
+    await this.client.send(new PurgeQueueCommand({ QueueUrl: this.wagersQueueUrl }));
   }
 
   public async assertReachable(): Promise<void> {

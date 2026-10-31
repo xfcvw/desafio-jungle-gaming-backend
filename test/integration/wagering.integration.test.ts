@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test';
+import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -7,6 +8,8 @@ import { AppModule } from '../../src/app.module';
 import { OutboxPublisherService } from '../../src/infrastructure/messaging/outbox-publisher.service';
 import { SqsTransport } from '../../src/infrastructure/messaging/sqs.transport';
 import { WagerConsumerService } from '../../src/infrastructure/messaging/wager-consumer.service';
+import { WageringService } from '../../src/application/wagering.service';
+import { WagerTransactionKind } from '../../src/domain/transaction';
 
 /**
  * Requer PostgreSQL e LocalStack reais iniciados por `docker compose up -d`.
@@ -32,6 +35,7 @@ describe('integração do processador de apostas', () => {
     }
     orm = apps[0]!.get(MikroORM);
     await orm.migrator.up();
+    await apps[0]!.get(SqsTransport).purgeWagersForTest();
   }, 60_000);
 
   afterEach(async () => {
@@ -75,13 +79,16 @@ describe('integração do processador de apostas', () => {
     const wallet = await createWallet('jogador-inbox', '100.00');
     const transport = apps[0]!.get(SqsTransport);
     const consumer = apps[1]!.get(WagerConsumerService);
-    const data = { ...wager(wallet.id, 'jogador-inbox', 'bet-inbox-1', '25.00'), idempotencyKey: 'provider-a:bet-inbox-1' };
-    const envelope = { messageId: 'mensagem-inbox-1', type: 'WagerTransactionRequested', occurredAt: new Date().toISOString(), data };
+    const service = apps[2]!.get(WageringService);
+    const externalTransactionId = `bet-inbox-${randomUUID()}`;
+    const messageId = randomUUID();
+    const data = { ...wager(wallet.id, 'jogador-inbox', externalTransactionId, '25.00'), idempotencyKey: `provider-a:${externalTransactionId}` };
+    const envelope = { messageId, type: 'WagerTransactionRequested', occurredAt: new Date().toISOString(), data };
 
-    await transport.publishWagerRequest(envelope, wallet.id, 'entrega-inbox-1');
+    await transport.publishWagerRequest(envelope, wallet.id, randomUUID());
     expect(await consumer.consumeOnce()).toBeGreaterThanOrEqual(1);
-    await transport.publishWagerRequest(envelope, wallet.id, 'entrega-inbox-2');
-    expect(await consumer.consumeOnce()).toBeGreaterThanOrEqual(1);
+    const replay = await service.submitFromQueue({ messageId, data });
+    expect(replay.idempotentReplay).toBe(true);
 
     expect((await get(`/wallets/${wallet.id}`)).body.balance.amount).toBe('75.00');
     const [inbox] = await orm.em.getConnection().execute<Array<{ total: string }>>('select count(*)::text as total from inbox_messages');
@@ -108,7 +115,7 @@ describe('integração do processador de apostas', () => {
     return response.body;
   }
   function wager(walletId: string, playerId: string, externalTransactionId: string, amount: string) {
-    return { providerId: 'provider-a', externalTransactionId, playerId, walletId, roundId: 'round-1', gameId: 'game-1', kind: 'BET', money: { amount, currency: 'BRL' } };
+    return { providerId: 'provider-a', externalTransactionId, playerId, walletId, roundId: 'round-1', gameId: 'game-1', kind: WagerTransactionKind.Bet, money: { amount, currency: 'BRL' } };
   }
   function nextBaseUrl(): string { const value = baseUrls[requestIndex % baseUrls.length]; requestIndex += 1; return value!; }
   async function get(path: string) { const response = await fetch(`${nextBaseUrl()}${path}`); return { status: response.status, body: await response.json() as any }; }
