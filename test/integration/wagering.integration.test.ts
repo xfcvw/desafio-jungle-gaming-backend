@@ -4,6 +4,9 @@ import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { MikroORM } from '@mikro-orm/postgresql';
 import { AppModule } from '../../src/app.module';
+import { OutboxPublisherService } from '../../src/infrastructure/messaging/outbox-publisher.service';
+import { SqsTransport } from '../../src/infrastructure/messaging/sqs.transport';
+import { WagerConsumerService } from '../../src/infrastructure/messaging/wager-consumer.service';
 
 /**
  * Requer PostgreSQL e LocalStack reais iniciados por `docker compose up -d`.
@@ -67,6 +70,35 @@ describe('integração do processador de apostas', () => {
     expect(result.status).toBe(201);
     expect(result.body).toMatchObject({ consistent: true, storedBalance: { amount: '70.00', currency: 'BRL' }, calculatedBalance: { amount: '70.00', currency: 'BRL' } });
   });
+
+  test('deduplica redelivery na Inbox usando uma fila SQS real', async () => {
+    const wallet = await createWallet('jogador-inbox', '100.00');
+    const transport = apps[0]!.get(SqsTransport);
+    const consumer = apps[1]!.get(WagerConsumerService);
+    const data = { ...wager(wallet.id, 'jogador-inbox', 'bet-inbox-1', '25.00'), idempotencyKey: 'provider-a:bet-inbox-1' };
+    const envelope = { messageId: 'mensagem-inbox-1', type: 'WagerTransactionRequested', occurredAt: new Date().toISOString(), data };
+
+    await transport.publishWagerRequest(envelope, wallet.id, 'entrega-inbox-1');
+    expect(await consumer.consumeOnce()).toBeGreaterThanOrEqual(1);
+    await transport.publishWagerRequest(envelope, wallet.id, 'entrega-inbox-2');
+    expect(await consumer.consumeOnce()).toBeGreaterThanOrEqual(1);
+
+    expect((await get(`/wallets/${wallet.id}`)).body.balance.amount).toBe('75.00');
+    const ledger = await get(`/wallets/${wallet.id}/ledger?limit=100`);
+    expect(ledger.body.entries.filter((entry: { direction: string }) => entry.direction === 'DEBIT')).toHaveLength(1);
+  }, 60_000);
+
+  test('dois publishers concorrentes concluem a mesma Outbox sem perda', async () => {
+    const wallet = await createWallet('jogador-outbox', '100.00');
+    await post('/wagering/transactions', wager(wallet.id, 'jogador-outbox', 'bet-outbox-1', '10.00'), 'provider-a:bet-outbox-1');
+    const first = apps[0]!.get(OutboxPublisherService);
+    const second = apps[1]!.get(OutboxPublisherService);
+    await Promise.all([first.publishDue(), second.publishDue()]);
+    const [summary] = await orm.em.getConnection().execute<Array<{ pending: string }>>(
+      'select count(*) filter (where published_at is null)::text as pending from outbox_messages',
+    );
+    expect(summary?.pending).toBe('0');
+  }, 60_000);
 
   async function createWallet(playerId: string, amount: string): Promise<{ id: string }> {
     const response = await post('/wallets', { playerId, initialBalance: { amount, currency: 'BRL' } });

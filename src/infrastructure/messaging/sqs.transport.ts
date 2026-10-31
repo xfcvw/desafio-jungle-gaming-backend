@@ -56,6 +56,16 @@ export class SqsTransport {
     }));
   }
 
+  /** Publicação usada por provedores/integrações e pelos testes de fila real. */
+  public async publishWagerRequest(payload: Record<string, unknown>, walletId: string, deduplicationId: string): Promise<void> {
+    await this.client.send(new SendMessageCommand({
+      QueueUrl: this.wagersQueueUrl,
+      MessageBody: JSON.stringify(payload),
+      MessageGroupId: walletId,
+      MessageDeduplicationId: deduplicationId,
+    }));
+  }
+
   public async assertReachable(): Promise<void> {
     await Promise.all([this.wagersQueueUrl, this.eventsQueueUrl].map((QueueUrl) => this.client.send(new GetQueueAttributesCommand({ QueueUrl, AttributeNames: ['QueueArn'] }))));
   }

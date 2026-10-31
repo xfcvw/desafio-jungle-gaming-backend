@@ -32,6 +32,6 @@ Autenticação foi deixada fora do escopo funcional, como permitido pelo enuncia
 
 ## Limitações e próximos incrementos
 
-- Faltam cenários automatizados para três ou mais processos, queda entre commit e `ack`, dois publishers simultâneos e reinício completo do serviço.
+- Faltam cenários automatizados para queda entre commit e `ack`, envio à DLQ e reinício completo do serviço.
 - As métricas estão em memória; em produção devem ser exportadas para Prometheus ou OpenTelemetry.
 - Antes de expor a API fora do ambiente de avaliação, adicionar autenticação OIDC, rate limiting e política de implantação.

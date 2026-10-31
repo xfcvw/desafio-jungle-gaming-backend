@@ -33,13 +33,19 @@ export class WagerConsumerService implements OnModuleInit, OnApplicationShutdown
     await Promise.allSettled([...this.inFlight.values()].map((message) => this.sqs.releaseWager(message)));
   }
 
+  /** Uma rodada determinística de consumo, útil para health checks operacionais e integração. */
+  public async consumeOnce(): Promise<number> {
+    const messages = await this.sqs.receiveWagers();
+    await Promise.all(messages.map((message) => this.handle(message)));
+    return messages.length;
+  }
+
   private async poll(): Promise<void> {
     if (this.polling || this.stopping) return;
     this.polling = true;
     try {
       while (!this.stopping) {
-        const messages = await this.sqs.receiveWagers();
-        await Promise.all(messages.map((message) => this.handle(message)));
+        await this.consumeOnce();
       }
     } catch (error) {
       this.logger.error({ message: 'SQS polling failed; retrying shortly.', error: error instanceof Error ? error.message : 'unknown' });
