@@ -228,7 +228,7 @@ export class WageringService {
       return await (transactionEm ? execute(transactionEm) : this.em.transactional(execute));
     } catch (error) {
       if (!this.isUniqueViolation(error)) throw error;
-      const duplicate = await this.em.findOneOrFail(WagerTransactionEntity, { idempotencyKey });
+      const duplicate = await this.em.fork().findOneOrFail(WagerTransactionEntity, { idempotencyKey });
       return this.replay(duplicate, payloadHash);
     }
   }
@@ -255,7 +255,7 @@ export class WageringService {
       });
     } catch (error) {
       if (!this.isUniqueViolation(error)) throw error;
-      const existing = await this.em.findOneOrFail(WagerTransactionEntity, { idempotencyKey: message.data.idempotencyKey });
+      const existing = await this.em.fork().findOneOrFail(WagerTransactionEntity, { idempotencyKey: message.data.idempotencyKey });
       return this.replay(existing, canonicalHash(message.data));
     }
   }

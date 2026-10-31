@@ -84,6 +84,8 @@ describe('integração do processador de apostas', () => {
     expect(await consumer.consumeOnce()).toBeGreaterThanOrEqual(1);
 
     expect((await get(`/wallets/${wallet.id}`)).body.balance.amount).toBe('75.00');
+    const [inbox] = await orm.em.getConnection().execute<Array<{ total: string }>>('select count(*)::text as total from inbox_messages');
+    expect(inbox?.total).toBe('1');
     const ledger = await get(`/wallets/${wallet.id}/ledger?limit=100`);
     expect(ledger.body.entries.filter((entry: { direction: string }) => entry.direction === 'DEBIT')).toHaveLength(1);
   }, 60_000);
