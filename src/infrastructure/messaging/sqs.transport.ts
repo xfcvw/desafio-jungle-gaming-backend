@@ -5,6 +5,7 @@ import {
   PurgeQueueCommand,
   ReceiveMessageCommand,
   SendMessageCommand,
+  SetQueueAttributesCommand,
   SQSClient,
   type Message,
 } from '@aws-sdk/client-sqs';
@@ -72,6 +73,22 @@ export class SqsTransport {
   public async purgeWagersForTest(): Promise<void> {
     await this.client.send(new PurgeQueueCommand({ QueueUrl: this.wagersQueueUrl }));
     await this.client.send(new PurgeQueueCommand({ QueueUrl: this.wagersDlqQueueUrl }));
+  }
+
+  /** Garante a política de redrive mesmo se o LocalStack já existia antes da suíte ser iniciada. */
+  public async configureWagerDlqForTest(maxReceiveCount = 5): Promise<void> {
+    const response = await this.client.send(new GetQueueAttributesCommand({
+      QueueUrl: this.wagersDlqQueueUrl,
+      AttributeNames: ['QueueArn'],
+    }));
+    const deadLetterTargetArn = response.Attributes?.QueueArn;
+    if (!deadLetterTargetArn) throw new Error('A fila DLQ de transações não possui ARN.');
+    await this.client.send(new SetQueueAttributesCommand({
+      QueueUrl: this.wagersQueueUrl,
+      Attributes: {
+        RedrivePolicy: JSON.stringify({ deadLetterTargetArn, maxReceiveCount: String(maxReceiveCount) }),
+      },
+    }));
   }
 
   public async receiveWagerDeadLetters(): Promise<Message[]> {

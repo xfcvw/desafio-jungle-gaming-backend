@@ -37,7 +37,9 @@ describe('integração do processador de apostas', () => {
     }
     orm = apps[0]!.get(MikroORM);
     await orm.migrator.up();
-    await apps[0]!.get(SqsTransport).purgeWagersForTest();
+    const transport = apps[0]!.get(SqsTransport);
+    await transport.configureWagerDlqForTest();
+    await transport.purgeWagersForTest();
   }, 60_000);
 
   afterEach(async () => {
