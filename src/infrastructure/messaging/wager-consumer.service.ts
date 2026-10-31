@@ -3,6 +3,7 @@ import type { Message } from '@aws-sdk/client-sqs';
 import { WagerTransactionKind } from '../../domain/transaction';
 import { type QueueWagerMessage, WageringService } from '../../application/wagering.service';
 import { SqsTransport } from './sqs.transport';
+import { MetricsService } from '../observability/metrics.service';
 
 interface WagerQueueEnvelope {
   messageId: string;
@@ -18,7 +19,7 @@ export class WagerConsumerService implements OnModuleInit, OnApplicationShutdown
   private stopping = false;
   private readonly inFlight = new Map<string, Message>();
 
-  public constructor(private readonly sqs: SqsTransport, private readonly wagering: WageringService) {}
+  public constructor(private readonly sqs: SqsTransport, private readonly wagering: WageringService, private readonly metrics: MetricsService) {}
 
   public onModuleInit(): void {
     if (process.env.RUN_WORKERS === 'false') return;
@@ -55,13 +56,16 @@ export class WagerConsumerService implements OnModuleInit, OnApplicationShutdown
       const envelope = this.parse(message);
       await this.wagering.submitFromQueue({ messageId: envelope.messageId, data: envelope.data });
       await this.sqs.acknowledgeWager(message);
+      this.metrics.increment('inbox_messages_processed_total');
     } catch (error) {
       if (error instanceof InvalidQueueEnvelopeError) {
         this.logger.error({ message: 'Discarding malformed wager message.', sqsMessageId: message.MessageId, error: error.message });
         await this.sqs.acknowledgeWager(message);
+        this.metrics.increment('inbox_messages_rejected_total');
       } else {
         // No acknowledgement: SQS retries and eventually routes the message to its DLQ.
         this.logger.error({ message: 'Wager message processing failed; leaving it for retry.', sqsMessageId: message.MessageId, error: error instanceof Error ? error.message : 'unknown' });
+        this.metrics.increment('inbox_retries_total');
       }
     } finally {
       this.inFlight.delete(trackingId);

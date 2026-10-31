@@ -1,40 +1,37 @@
-# Architecture decisions
+# Decisões de arquitetura
 
-## Money and ledger
+## Dinheiro e ledger
 
-External money is always `{ amount: string, currency: string }`. `Money` accepts only a fixed two-decimal string and uses `decimal.js`; JavaScript `number` is never used for a financial value. PostgreSQL persists the amount in `numeric(20,2)`.
+O contrato de dinheiro é `{ amount: string, currency: string }`. A classe `Money` aceita escala fixa de duas casas e usa `decimal.js`; `number` não é usado em valores financeiros. O PostgreSQL persiste valores em `numeric(20,2)`.
 
-`wallet_ledger_entries` is the source of audit evidence. It has one row per financial transaction, a unique constraint on `transaction_id`, checks for non-negative before/after balances and a database trigger that rejects any update or deletion. The materialized balance in `wallets` is fast to read, while reconciliation will rebuild it from the ledger.
+`wallet_ledger_entries` é a evidência auditável de cada movimento. Há unicidade por `transaction_id`, trigger que bloqueia `UPDATE` e `DELETE` e trigger que valida moeda e aritmética do lançamento no banco. `wallets.balance` é materializado para leitura rápida; a reconciliação o compara com a soma do ledger e não corrige divergências silenciosamente.
 
-## Concurrency
+## Concorrência
 
-The concurrency boundary is a single wallet. The wager use case creates its transaction record and then obtains a PostgreSQL pessimistic row lock on that wallet inside one SQL transaction. Wallets with different IDs remain independent; operations for the same wallet serialize. This makes the required two simultaneous bets of 80.00 against 100.00 deterministic: one becomes `PROCESSED`, the other `REJECTED` with `INSUFFICIENT_FUNDS`.
+A unidade de concorrência é a carteira. O processamento usa `FOR UPDATE` na linha da carteira dentro de uma transação SQL. Carteiras diferentes permanecem independentes. Duas apostas de `80.00` contra saldo `100.00` resultam em uma `PROCESSED`, uma `REJECTED` e saldo final `20.00`.
 
-The final database `CHECK (balance >= 0)` is defense in depth. It is not the sole concurrency strategy.
+O `CHECK (balance >= 0)` é defesa adicional; não substitui o lock.
 
-## Idempotency
+## Idempotência e mensageria
 
-The `Idempotency-Key` header is stored in `wager_transactions` under a unique constraint. The application creates a canonical JSON representation of the business payload (sorted keys) and stores its SHA-256. An equal key + equal hash returns the original stored outcome; an equal key + different hash is an explicit conflict. The database, not process memory, is authoritative when replicas race.
+`Idempotency-Key` possui unicidade persistida em `wager_transactions`. O payload de negócio é normalizado com chaves ordenadas e armazenado como SHA-256. Chave e hash iguais devolvem o resultado original; chave igual e hash diferente gera conflito.
 
-## Transactional boundary
+Carteira, lançamento, status da transação, Inbox e Outbox participam da mesma transação. A Outbox usa `FOR UPDATE SKIP LOCKED`; uma publicação duplicada continua segura porque os consumidores deduplicam pelo `eventId`. O consumidor SQS confirma a mensagem apenas depois do commit; falhas transitórias ficam para retry e a fila as envia à DLQ após cinco recebimentos.
 
-Wallet mutation, ledger insertion, wager status and outbox rows use the same MikroORM/PostgreSQL transaction. An event cannot be stored without the associated financial result, and no message is published by the HTTP path before that commit.
+## Referências fora de ordem
 
-The outbox publisher and SQS Inbox worker are separate adapters. Publishers claim pending rows with `FOR UPDATE SKIP LOCKED`, temporarily lease them through `next_attempt_at`, publish, then mark them as published. A crash after publication but before this final update can create a duplicate event; the stable event ID in the envelope allows downstream Inbox consumers to deduplicate it safely.
+`REFUND` e `ROLLBACK` sem referência ficam em `PENDING_REFERENCE`. Um worker separado executa a cada cinco segundos, aplica backoff exponencial e faz até dez tentativas. Ao esgotar, a transação torna-se `REJECTED` com `REFERENCE_NOT_FOUND`.
 
-The wager consumer creates the Inbox record, executes the financial use case, writes its ledger/outbox records and marks the Inbox record as processed in one SQL transaction. It deletes the SQS message only after that transaction commits. Transient failures therefore remain visible for SQS retry and move to the FIFO DLQ after five receives. On shutdown, in-flight messages are allowed to finish for up to 20 seconds, then their visibility is returned to the queue.
+## Observabilidade
 
-## Reversals
+Os logs são JSON estruturado e não recebem payload financeiro completo. O endpoint `/metrics` expõe contadores de transações, replays idempotentes, publicação/retry da Outbox e processamento da Inbox. Essas métricas não fazem parte da garantia financeira.
 
-`REFUND` only reverses a processed `BET`; `ROLLBACK` reverses a processed `BET`, `WIN` or `REFUND`. The reference must match provider, player, wallet, round, currency and amount. The unique ledger row and a query for an existing processed reversal prevent duplicate effects. Missing references are persisted as `PENDING_REFERENCE`; a scheduled retry worker will decide whether to process or eventually reject them.
+## Autenticação
 
-## Authentication
+Autenticação foi deixada fora do escopo funcional, como permitido pelo enunciado. O ponto de extensão deve ser um `Guard` do Nest integrado a OIDC externo, como Keycloak ou Zitadel, nunca uma tabela própria de senhas. Health checks continuam públicos.
 
-Authentication is intentionally deferred, as the challenge permits. The extension boundary will be a Nest guard backed by an external OIDC provider (Keycloak or Zitadel), never a custom passwords table. Health endpoints stay unauthenticated.
+## Limitações e próximos incrementos
 
-## Known next work
-
-1. Add scheduled reprocessing and expiry for `PENDING_REFERENCE` transactions.
-2. Add ledger cursor pagination, transaction lookup and reconciliation endpoints.
-3. Add container-based integration and multi-process concurrency tests.
-4. Add structured metrics and correlation IDs to the log adapter.
+- Faltam cenários automatizados para três ou mais processos, queda entre commit e `ack`, dois publishers simultâneos e reinício completo do serviço.
+- As métricas estão em memória; em produção devem ser exportadas para Prometheus ou OpenTelemetry.
+- Antes de expor a API fora do ambiente de avaliação, adicionar autenticação OIDC, rate limiting e política de implantação.

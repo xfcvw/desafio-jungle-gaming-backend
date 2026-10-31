@@ -1,25 +1,29 @@
-# Distributed Wagering Processor
+# Processador Distribuído de Apostas — Desafio Jungle Gaming
 
-Implementation of the Jungle Gaming backend challenge. The project is organized around financial invariants first: exact money, immutable ledger, database-enforced idempotency and wallet-scoped concurrency.
+Implementação do desafio técnico da Jungle Gaming. O foco é manter a correção financeira mesmo com reentregas, concorrência na mesma carteira e falhas temporárias da fila.
 
-## Current milestone
+## Tecnologias
 
-- NestJS + TypeScript strict mode + Bun scripts;
-- PostgreSQL schema/migration with constraints and immutable ledger trigger;
-- `Money`, `Wallet`, ledger and transaction domain types;
-- wallet creation with internal `OPENING` transaction and ledger entry;
-- synchronous HTTP submission for `BET`, `WIN`, `LOSS`, `REFUND` and `ROLLBACK`;
-- persisted idempotency key and canonical SHA-256 payload hash;
-- row-level wallet lock (`FOR UPDATE`) to prevent lost updates;
-- transactional outbox records plus a concurrent `SKIP LOCKED` publisher;
-- SQS consumer with persistent Inbox deduplication, delayed retry and DLQ handoff;
-- unit tests for exact money and wallet invariants.
+- Bun 1.x, TypeScript estrito e NestJS;
+- PostgreSQL e MikroORM com migrations reversíveis;
+- AWS SQS via LocalStack e Docker Compose;
+- `decimal.js` para valores monetários exatos.
 
-The next milestone adds container-based integration tests, concurrent multi-process tests, scheduled reprocessing of out-of-order references, reconciliation and cursor-based queries.
+## Garantias implementadas
 
-## Run locally
+- Dinheiro usa somente strings decimais com duas casas; não há `number` em valores financeiros.
+- Uma carteira é única para `playerId + currency` e seu saldo não pode ser negativo.
+- Toda alteração financeira cria um lançamento imutável no ledger.
+- O PostgreSQL bloqueia alteração/remoção do ledger e valida sua aritmética.
+- A `Idempotency-Key` e o hash SHA-256 do payload são persistidos. Reenvio idêntico devolve a resposta original; mesma chave com payload diferente gera conflito.
+- O lock pessimista `FOR UPDATE` é por carteira, evitando *lost update* sem bloquear carteiras diferentes.
+- Wallet, transação, ledger, Inbox e Outbox são gravados na mesma transação SQL.
+- A Outbox usa `FOR UPDATE SKIP LOCKED`; o consumidor SQS confirma a mensagem somente após o commit.
+- `REFUND` e `ROLLBACK` sem referência ficam em `PENDING_REFERENCE`, com backoff e expiração após dez tentativas.
 
-Prerequisites: Bun 1.x and Docker Compose.
+## Como executar localmente
+
+Pré-requisitos: Docker Desktop e Bun 1.x.
 
 ```bash
 cp .env.example .env
@@ -29,15 +33,41 @@ bun run migration:up
 bun run start:dev
 ```
 
-Run the unit tests:
+No PowerShell:
 
-```bash
-bun test test/unit
+```powershell
+copy .env.example .env
 ```
 
-## HTTP examples
+Se a porta `5432` estiver ocupada, altere a porta exposta no `docker-compose.yml` e a `DATABASE_URL` apenas no seu `.env`. O `.env` não entra no Git.
 
-Create a wallet:
+## Testes e validações
+
+Com os containers ativos:
+
+```bash
+bun run lint
+bun run test:unit
+RUN_WORKERS=false bun run test:integration
+```
+
+Os testes de integração usam PostgreSQL real e cobrem cinquenta entregas idênticas em paralelo, duas apostas disputando saldo e reconciliação do ledger.
+
+## Endpoints
+
+| Método e rota | Finalidade |
+| --- | --- |
+| `POST /wallets` | Cria carteira e crédito interno `OPENING`. |
+| `GET /wallets/:walletId` | Consulta saldo e versão. |
+| `GET /wallets/:walletId/ledger?cursor=&limit=50` | Lista o ledger com cursor opaco. |
+| `POST /wallets/:walletId/reconciliation` | Recalcula o saldo a partir do ledger. |
+| `POST /wagering/transactions` | Recebe `BET`, `WIN`, `LOSS`, `REFUND` ou `ROLLBACK`. Exige `Idempotency-Key`. |
+| `GET /wagering/transactions/:transactionId` | Consulta uma transação. |
+| `GET /providers/:providerId/wagering/transactions/:externalTransactionId` | Consulta por transação externa. |
+| `GET /health/live` e `GET /health/ready` | Saúde do processo, PostgreSQL e SQS. |
+| `GET /metrics` | Contadores operacionais em JSON. |
+
+## Exemplo rápido
 
 ```bash
 curl -X POST http://localhost:3000/wallets \
@@ -45,25 +75,13 @@ curl -X POST http://localhost:3000/wallets \
   -d '{"playerId":"player-1","initialBalance":{"amount":"100.00","currency":"BRL"}}'
 ```
 
-Submit a bet, replacing the wallet ID returned above:
-
 ```bash
 curl -X POST http://localhost:3000/wagering/transactions \
   -H 'content-type: application/json' \
   -H 'Idempotency-Key: provider-a:bet-001' \
-  -d '{"providerId":"provider-a","externalTransactionId":"bet-001","playerId":"player-1","walletId":"<wallet-id>","roundId":"round-1","gameId":"game-1","kind":"BET","money":{"amount":"80.00","currency":"BRL"}}'
+  -d '{"providerId":"provider-a","externalTransactionId":"bet-001","playerId":"player-1","walletId":"<wallet-id>","roundId":"round-1","gameId":"game-1","kind":"BET","money":{"amount":"25.00","currency":"BRL"}}'
 ```
 
-Repeat exactly the same request and key to receive the original result with `idempotentReplay: true`. Reusing that key with a different payload returns HTTP 409.
+Repetir a requisição idêntica retorna `idempotentReplay: true`. Reutilizar a chave com outro payload retorna HTTP 409.
 
-## Endpoints currently exposed
-
-| Endpoint | Purpose |
-| --- | --- |
-| `POST /wallets` | Create a wallet and initial opening credit |
-| `GET /wallets/:walletId` | Read a wallet balance and version |
-| `POST /wagering/transactions` | Submit a wager operation with `Idempotency-Key` |
-| `GET /health/live` | Process liveness |
-| `GET /health/ready` | PostgreSQL and SQS readiness |
-
-Architecture and trade-offs are documented in [ARCHITECTURE.md](ARCHITECTURE.md).
+Consulte [ARCHITECTURE.md](ARCHITECTURE.md) para as decisões e limitações conhecidas.

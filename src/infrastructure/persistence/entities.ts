@@ -36,6 +36,8 @@ export class WagerTransactionEntity {
   @Property({ fieldName: 'reference_transaction_id', type: 'uuid', nullable: true }) referenceTransactionId?: string;
   @Enum({ items: () => FailureCode, nullable: true, fieldName: 'failure_code' }) failureCode?: FailureCode;
   @Property({ fieldName: 'observed_balance_amount', type: 'decimal', precision: 20, scale: 2, nullable: true }) observedBalanceAmount?: string;
+  @Property({ fieldName: 'reference_attempts', type: 'integer' }) referenceAttempts = 0;
+  @Property({ fieldName: 'next_reference_attempt_at', type: 'datetime', nullable: true }) nextReferenceAttemptAt?: Date;
   @Property({ type: 'datetime', fieldName: 'processed_at', nullable: true }) processedAt?: Date;
   @Property({ type: 'datetime', fieldName: 'created_at' }) createdAt = new Date();
 }

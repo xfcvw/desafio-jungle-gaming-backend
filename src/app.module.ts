@@ -7,10 +7,13 @@ import { WageringController } from './api/wagering.controller';
 import { SqsTransport } from './infrastructure/messaging/sqs.transport';
 import { OutboxPublisherService } from './infrastructure/messaging/outbox-publisher.service';
 import { WagerConsumerService } from './infrastructure/messaging/wager-consumer.service';
+import { PendingReferenceWorkerService } from './infrastructure/messaging/pending-reference-worker.service';
+import { MetricsController } from './api/metrics.controller';
+import { MetricsService } from './infrastructure/observability/metrics.service';
 
 @Module({
   imports: [MikroOrmModule.forRoot(mikroConfig)],
-  controllers: [HealthController, WageringController],
-  providers: [WageringService, SqsTransport, OutboxPublisherService, WagerConsumerService],
+  controllers: [HealthController, WageringController, MetricsController],
+  providers: [WageringService, SqsTransport, OutboxPublisherService, WagerConsumerService, PendingReferenceWorkerService, MetricsService],
 })
 export class AppModule {}

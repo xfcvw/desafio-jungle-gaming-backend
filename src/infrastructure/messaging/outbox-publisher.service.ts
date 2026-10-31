@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationShutdown, OnModuleInit } from '@nestjs
 import { EntityManager } from '@mikro-orm/postgresql';
 import { OutboxMessageEntity } from '../persistence/entities';
 import { SqsTransport } from './sqs.transport';
+import { MetricsService } from '../observability/metrics.service';
 
 interface ClaimedOutboxMessage { id: string; aggregateId: string; payload: Record<string, unknown>; attempts: number }
 
@@ -11,7 +12,7 @@ export class OutboxPublisherService implements OnModuleInit, OnApplicationShutdo
   private timer?: ReturnType<typeof setInterval>;
   private running = false;
 
-  public constructor(private readonly em: EntityManager, private readonly sqs: SqsTransport) {}
+  public constructor(private readonly em: EntityManager, private readonly sqs: SqsTransport, private readonly metrics: MetricsService) {}
 
   public onModuleInit(): void {
     if (process.env.RUN_WORKERS === 'false') return;
@@ -33,8 +34,10 @@ export class OutboxPublisherService implements OnModuleInit, OnApplicationShutdo
           const eventId = typeof message.payload.eventId === 'string' ? message.payload.eventId : message.id;
           await this.sqs.publishIntegrationEvent(message.payload, message.aggregateId, eventId);
           await this.em.fork().nativeUpdate(OutboxMessageEntity, { id: message.id, publishedAt: null }, { publishedAt: new Date() });
+          this.metrics.increment('outbox_published_total', { eventType: String(message.payload.eventType ?? 'unknown') });
         } catch (error) {
           await this.scheduleRetry(message);
+          this.metrics.increment('outbox_retries_total');
           this.logger.warn({ message: 'Outbox publication failed; scheduled retry.', outboxMessageId: message.id, attempt: message.attempts, error: error instanceof Error ? error.message : 'unknown' });
         }
       }

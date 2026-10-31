@@ -2,7 +2,7 @@
   "name": "jungle-wagering-processor",
   "version": "0.1.0",
   "private": true,
-  "description": "Jungle Gaming distributed wagering processor challenge",
+  "description": "Desafio técnico: processador distribuído de apostas da Jungle Gaming",
   "scripts": {
     "build": "nest build",
     "start": "node dist/main",
