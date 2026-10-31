@@ -120,7 +120,7 @@ describe('integração do processador de apostas', () => {
     const data = { ...wager(nonexistentWalletId, 'jogador-inexistente', externalTransactionId, '10.00'), idempotencyKey: `provider-a:${externalTransactionId}` };
     const envelope = { messageId, type: 'WagerTransactionRequested', occurredAt: new Date().toISOString(), data };
     await transport.publishWagerRequest(envelope, nonexistentWalletId, randomUUID());
-    for (let attempt = 0; attempt < 8; attempt += 1) await consumer.consumeOnce();
+    for (let attempt = 0; attempt < 8; attempt += 1) await consumer.consumeOnce({ releaseTransientFailures: true });
     const deadLetters = await transport.receiveWagerDeadLetters();
     expect(deadLetters.some((message) => message.Body?.includes(messageId))).toBe(true);
   }, 60_000);

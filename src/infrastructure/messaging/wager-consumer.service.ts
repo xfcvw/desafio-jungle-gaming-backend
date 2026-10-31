@@ -12,6 +12,11 @@ interface WagerQueueEnvelope {
   data: QueueWagerMessage['data'];
 }
 
+interface ConsumeOnceOptions {
+  /** Permite que testes exercitem rapidamente as tentativas e a DLQ, sem aguardar o timeout de visibilidade. */
+  releaseTransientFailures?: boolean;
+}
+
 @Injectable()
 export class WagerConsumerService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(WagerConsumerService.name);
@@ -34,9 +39,9 @@ export class WagerConsumerService implements OnModuleInit, OnApplicationShutdown
   }
 
   /** Uma rodada determinística de consumo, útil para health checks operacionais e integração. */
-  public async consumeOnce(): Promise<number> {
+  public async consumeOnce(options: ConsumeOnceOptions = {}): Promise<number> {
     const messages = await this.sqs.receiveWagers();
-    await Promise.all(messages.map((message) => this.handle(message)));
+    await Promise.all(messages.map((message) => this.handle(message, options.releaseTransientFailures ?? false)));
     return messages.length;
   }
 
@@ -55,7 +60,7 @@ export class WagerConsumerService implements OnModuleInit, OnApplicationShutdown
     }
   }
 
-  private async handle(message: Message): Promise<void> {
+  private async handle(message: Message, releaseTransientFailures: boolean): Promise<void> {
     const trackingId = message.MessageId ?? message.ReceiptHandle ?? crypto.randomUUID();
     this.inFlight.set(trackingId, message);
     try {
@@ -72,6 +77,7 @@ export class WagerConsumerService implements OnModuleInit, OnApplicationShutdown
         // No acknowledgement: SQS retries and eventually routes the message to its DLQ.
         this.logger.error({ message: 'Wager message processing failed; leaving it for retry.', sqsMessageId: message.MessageId, error: error instanceof Error ? error.message : 'unknown' });
         this.metrics.increment('inbox_retries_total');
+        if (releaseTransientFailures) await this.sqs.releaseWager(message);
       }
     } finally {
       this.inFlight.delete(trackingId);
