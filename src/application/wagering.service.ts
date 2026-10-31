@@ -145,7 +145,13 @@ export class WageringService {
 
     const execute = async (em: EntityManager): Promise<SubmitWagerResult> => {
         const now = new Date();
-        // Persist first: the database's unique constraint is the definitive idempotency gate.
+        // O lock precisa vir antes do INSERT com FK para a wallet. Inserir primeiro
+        // mantém um lock compartilhado pela FK; duas transações concorrentes podem
+        // então formar um ciclo ao tentar FOR UPDATE na mesma carteira.
+        const walletEntity = await em.findOne(WalletEntity, { id: input.walletId }, { lockMode: LockMode.PESSIMISTIC_WRITE });
+        if (!walletEntity) throw new NotFoundException('Wallet not found.');
+
+        // A constraint única continua sendo o portão definitivo da idempotência.
         const transaction = em.create(WagerTransactionEntity, {
           id: randomUUID(), providerId: input.providerId, externalTransactionId: input.externalTransactionId,
           idempotencyKey, payloadHash, walletId: input.walletId, playerId: input.playerId,
@@ -156,8 +162,6 @@ export class WageringService {
         em.persist(transaction);
         await em.flush();
 
-        const walletEntity = await em.findOne(WalletEntity, { id: input.walletId }, { lockMode: LockMode.PESSIMISTIC_WRITE });
-        if (!walletEntity) throw new NotFoundException('Wallet not found.');
         if (walletEntity.playerId !== input.playerId || walletEntity.currency !== money.currency) {
           transaction.status = WagerTransactionStatus.Rejected;
           transaction.failureCode = FailureCode.CurrencyMismatch;
