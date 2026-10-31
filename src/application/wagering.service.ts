@@ -239,6 +239,7 @@ export class WageringService {
    */
   public async submitFromQueue(message: QueueWagerMessage): Promise<SubmitWagerResult> {
     const payloadHash = canonicalHash(message.data);
+    const { idempotencyKey, ...input } = message.data;
     try {
       return await this.em.transactional(async (em) => {
         const inbox = em.create(InboxMessageEntity, {
@@ -247,7 +248,6 @@ export class WageringService {
         });
         em.persist(inbox);
         await em.flush();
-        const { idempotencyKey, ...input } = message.data;
         const result = await this.submit(input, idempotencyKey, em);
         inbox.processedAt = new Date();
         await em.flush();
@@ -256,7 +256,7 @@ export class WageringService {
     } catch (error) {
       if (!this.isUniqueViolation(error)) throw error;
       const existing = await this.em.fork().findOneOrFail(WagerTransactionEntity, { idempotencyKey: message.data.idempotencyKey });
-      return this.replay(existing, canonicalHash(message.data));
+      return this.replay(existing, canonicalHash(input));
     }
   }
 
