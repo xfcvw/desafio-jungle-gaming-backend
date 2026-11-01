@@ -125,7 +125,8 @@ describe('integração do processador de apostas', () => {
     process.env.SQS_VISIBILITY_TIMEOUT = '1';
     for (let attempt = 0; attempt < 7; attempt += 1) {
       await consumer.consumeOnce();
-      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      // LocalStack pode aplicar aproximadamente dois segundos antes de redeliver uma FIFO.
+      await new Promise((resolve) => setTimeout(resolve, 2_100));
     }
     const deadLetters = await transport.receiveWagerDeadLetters();
     expect(deadLetters.some((message) => message.Body?.includes(messageId))).toBe(true);
