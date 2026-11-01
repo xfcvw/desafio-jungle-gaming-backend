@@ -83,5 +83,6 @@ curl -X POST http://localhost:3000/wagering/transactions \
 ```
 
 Repetir a requisição idêntica retorna `idempotentReplay: true`. Reutilizar a chave com outro payload retorna HTTP 409.
+Uma rejeição de regra de negócio (saldo insuficiente, moeda incompatível ou referência inválida) retorna HTTP 422 com o status da transação e o saldo observado.
 
 Consulte [ARCHITECTURE.md](ARCHITECTURE.md) para as decisões e limitações conhecidas.

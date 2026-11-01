@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { WagerTransactionKind } from '../domain/transaction';
+import { WagerTransactionKind, WagerTransactionStatus } from '../domain/transaction';
 import { WageringService } from '../application/wagering.service';
 import { ProviderAuthGuard } from './provider-auth.guard';
 
@@ -29,6 +29,8 @@ class LedgerQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) limit?: number;
 }
 
+interface HttpResponse { status(code: number): unknown }
+
 @Controller()
 @UseGuards(ProviderAuthGuard)
 export class WageringController {
@@ -43,8 +45,16 @@ export class WageringController {
   public reconcile(@Param('walletId') walletId: string) { return this.wagering.reconcile(walletId); }
   @Post('wagering/transactions')
   @HttpCode(200)
-  public submit(@Body() body: SubmitWagerDto, @Headers('idempotency-key') idempotencyKey: string | undefined) {
-    return this.wagering.submit(body, idempotencyKey ?? '');
+  public async submit(
+    @Body() body: SubmitWagerDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @Res({ passthrough: true }) response: HttpResponse,
+  ) {
+    const result = await this.wagering.submit(body, idempotencyKey ?? '');
+    // Falhas de regra de negócio não são falhas do servidor: o cliente recebe o
+    // identificador e o saldo observado, mas com uma semântica HTTP explícita.
+    if (result.status === WagerTransactionStatus.Rejected) response.status(422);
+    return result;
   }
   @Get('wagering/transactions/:transactionId')
   public getTransaction(@Param('transactionId') transactionId: string) { return this.wagering.getTransaction(transactionId); }

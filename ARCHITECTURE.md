@@ -32,6 +32,6 @@ Autenticação foi deixada fora do escopo funcional, como permitido pelo enuncia
 
 ## Limitações e próximos incrementos
 
-- Faltam cenários automatizados para queda entre commit e `ack` e reinício completo do serviço.
+- O teste simula a queda entre commit e `ack` e recria uma instância Nest para recuperar a Outbox; uma prova de reinício do processo completo em ambiente orquestrado ainda seria um incremento útil.
 - As métricas estão em memória; em produção devem ser exportadas para Prometheus ou OpenTelemetry.
 - Antes de expor a API fora do ambiente de avaliação, adicionar autenticação OIDC, rate limiting e política de implantação.

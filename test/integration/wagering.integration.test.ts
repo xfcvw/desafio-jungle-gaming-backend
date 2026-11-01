@@ -95,6 +95,26 @@ describe('integração do processador de apostas', () => {
     expect((await get(`/wallets/${wallet.id}`)).body.balance.amount).toBe('75.00');
   });
 
+  test('rejeita moeda diferente da carteira sem criar lançamento no ledger', async () => {
+    const wallet = await createWallet('jogador-moeda-divergente', '100.00');
+    const response = await post('/wagering/transactions', {
+      ...wager(wallet.id, 'jogador-moeda-divergente', 'bet-usd', '25.00'),
+      money: { amount: '25.00', currency: 'USD' },
+    }, 'provider-a:bet-usd');
+    expect(response.status).toBe(422);
+    expect(response.body).toMatchObject({ status: 'REJECTED', balance: { amount: '100.00', currency: 'BRL' } });
+    const ledger = await get(`/wallets/${wallet.id}/ledger?limit=100`);
+    expect(ledger.body.entries).toHaveLength(1); // Apenas OPENING.
+  });
+
+  test('o banco bloqueia alteração e remoção de lançamentos do ledger', async () => {
+    const wallet = await createWallet('jogador-ledger-imutavel', '100.00');
+    const ledger = await get(`/wallets/${wallet.id}/ledger?limit=10`);
+    const entryId = ledger.body.entries[0].id as string;
+    await expect(orm.em.getConnection().execute('update wallet_ledger_entries set amount = 1.00 where id = ?', [entryId])).rejects.toThrow('Ledger entries are immutable');
+    await expect(orm.em.getConnection().execute('delete from wallet_ledger_entries where id = ?', [entryId])).rejects.toThrow('Ledger entries are immutable');
+  });
+
   test('reconcilia o saldo materializado com o ledger imutável', async () => {
     const wallet = await createWallet('jogador-reconciliacao', '100.00');
     await post('/wagering/transactions', wager(wallet.id, 'jogador-reconciliacao', 'bet-reconcile', '30.00'), 'provider-a:bet-reconcile');
