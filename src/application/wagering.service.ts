@@ -283,7 +283,10 @@ export class WageringService {
     }, { limit, orderBy: { createdAt: 'asc' } });
     let processed = 0;
     for (const candidate of pending) {
-      const didProcess = await workerEm.transactional(async (em) => {
+      // Cada pendência ganha um mapa de identidade e uma transação novos. Isso
+      // impede que o worker reutilize uma entidade vista antes da transação.
+      const attemptEm = this.em.fork();
+      const didProcess = await attemptEm.transactional(async (em) => {
         const transaction = await em.findOne(WagerTransactionEntity, { id: candidate.id }, { lockMode: LockMode.PESSIMISTIC_WRITE });
         if (!transaction || transaction.status !== WagerTransactionStatus.PendingReference) return false;
         const walletEntity = await em.findOne(WalletEntity, { id: transaction.walletId }, { lockMode: LockMode.PESSIMISTIC_WRITE });
