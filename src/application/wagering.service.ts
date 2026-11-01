@@ -399,6 +399,15 @@ export class WageringService {
        from wager_transactions where external_transaction_id = ?`,
       [referenceExternalTransactionId],
     );
+    if (process.env.DEBUG_PENDING_REFERENCE === 'true') {
+      console.info('diagnostico-resolucao-referencia', {
+        transactionId: transaction.id,
+        pointer,
+        entityReference: transaction.referenceExternalTransactionId,
+        resolvedReference: referenceExternalTransactionId,
+        ref,
+      });
+    }
     if (!ref) { transaction.status = WagerTransactionStatus.PendingReference; return undefined; }
     const validKind = transaction.kind === WagerTransactionKind.Refund
       ? ref.kind === WagerTransactionKind.Bet
