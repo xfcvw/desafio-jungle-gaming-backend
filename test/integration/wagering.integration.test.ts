@@ -143,6 +143,8 @@ describe('integração do processador de apostas', () => {
     expect(pending.body.status).toBe('PENDING_REFERENCE');
     const reference = await post('/wagering/transactions', wager(wallet.id, 'jogador-fora-de-ordem', 'bet-depois', '20.00'), 'provider-a:bet-depois');
     expect(reference.body.status).toBe('PROCESSED');
+    const pendingBeforeWorker = await get(`/wagering/transactions/${pending.body.transactionId}`);
+    console.info('diagnóstico de referência pendente', { pending: pendingBeforeWorker.body, reference: reference.body });
     expect(await apps[0]!.get(WageringService).reprocessPendingReferences()).toBe(1);
     expect((await get(`/wagering/transactions/${pending.body.transactionId}`)).body.status).toBe('PROCESSED');
     expect((await get(`/wallets/${wallet.id}`)).body.balance.amount).toBe('100.00');
