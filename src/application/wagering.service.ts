@@ -41,6 +41,10 @@ interface ReferenceTransactionRow {
   currency: string;
 }
 
+interface PendingReferencePointerRow {
+  reference_external_transaction_id?: string;
+}
+
 @Injectable()
 export class WageringService {
   public constructor(private readonly em: EntityManager, private readonly metrics: MetricsService) {}
@@ -380,13 +384,20 @@ export class WageringService {
 
   private async resolveReference(em: EntityManager, transaction: WagerTransactionEntity): Promise<ReferenceTransactionRow | undefined> {
     if (!this.isReversal(transaction.kind)) return undefined;
-    if (!transaction.referenceExternalTransactionId) throw new UnprocessableEntityException('A reference transaction is required.');
+    // Alguns fluxos de worker carregam a entidade com um mapa de campos parcial.
+    // A fonte de verdade para a referência é a coluna persistida da própria linha.
+    const [pointer] = await em.getConnection().execute<PendingReferencePointerRow[]>(
+      'select reference_external_transaction_id from wager_transactions where id = ?',
+      [transaction.id],
+    );
+    const referenceExternalTransactionId = pointer?.reference_external_transaction_id ?? transaction.referenceExternalTransactionId;
+    if (!referenceExternalTransactionId) throw new UnprocessableEntityException('A reference transaction is required.');
     // A busca usa a chave única persistida diretamente. Em workers fora do ciclo
     // HTTP, isso evita qualquer interferência do mapa de identidade do ORM.
     const [ref] = await em.getConnection().execute<ReferenceTransactionRow[]>(
       `select id, provider_id, kind, status, wallet_id, player_id, round_id, game_id, amount, currency
        from wager_transactions where external_transaction_id = ?`,
-      [transaction.referenceExternalTransactionId],
+      [referenceExternalTransactionId],
     );
     if (!ref) { transaction.status = WagerTransactionStatus.PendingReference; return undefined; }
     const validKind = transaction.kind === WagerTransactionKind.Refund
