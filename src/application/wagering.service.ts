@@ -368,11 +368,15 @@ export class WageringService {
   private async resolveReference(em: EntityManager, transaction: WagerTransactionEntity): Promise<WagerTransactionEntity | undefined> {
     if (!this.isReversal(transaction.kind)) return undefined;
     if (!transaction.referenceExternalTransactionId) throw new UnprocessableEntityException('A reference transaction is required.');
-    const ref = await em.findOne(
-      WagerTransactionEntity,
-      { providerId: transaction.providerId, externalTransactionId: transaction.referenceExternalTransactionId },
-      { refresh: true },
+    // A busca usa a chave única persistida diretamente. Em workers fora do ciclo
+    // HTTP, isso evita qualquer interferência do mapa de identidade do ORM.
+    const [referenceRow] = await em.getConnection().execute<Array<{ id: string }>>(
+      'select id from wager_transactions where provider_id = ? and external_transaction_id = ?',
+      [transaction.providerId, transaction.referenceExternalTransactionId],
     );
+    const ref = referenceRow
+      ? await em.findOne(WagerTransactionEntity, { id: referenceRow.id }, { lockMode: LockMode.PESSIMISTIC_READ, refresh: true })
+      : null;
     if (!ref) { transaction.status = WagerTransactionStatus.PendingReference; return undefined; }
     const validKind = transaction.kind === WagerTransactionKind.Refund
       ? ref.kind === WagerTransactionKind.Bet
