@@ -18,6 +18,6 @@ jobs:
       - run: bun run migration:up
       - run: bun run lint
       - run: bun run test:unit
-      - run: RUN_WORKERS=false DEBUG_PENDING_REFERENCE=true bun run test:integration
+      - run: RUN_WORKERS=false bun run test:integration
       - if: always()
         run: docker compose logs --no-color
