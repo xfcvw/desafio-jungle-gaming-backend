@@ -30,6 +30,7 @@ export interface ReconciliationResult {
 
 interface ReferenceTransactionRow {
   id: string;
+  provider_id: string;
   kind: WagerTransactionKind;
   status: WagerTransactionStatus;
   wallet_id: string;
@@ -383,9 +384,9 @@ export class WageringService {
     // A busca usa a chave única persistida diretamente. Em workers fora do ciclo
     // HTTP, isso evita qualquer interferência do mapa de identidade do ORM.
     const [ref] = await em.getConnection().execute<ReferenceTransactionRow[]>(
-      `select id, kind, status, wallet_id, player_id, round_id, game_id, amount, currency
-       from wager_transactions where provider_id = ? and external_transaction_id = ?`,
-      [transaction.providerId, transaction.referenceExternalTransactionId],
+      `select id, provider_id, kind, status, wallet_id, player_id, round_id, game_id, amount, currency
+       from wager_transactions where external_transaction_id = ?`,
+      [transaction.referenceExternalTransactionId],
     );
     if (!ref) { transaction.status = WagerTransactionStatus.PendingReference; return undefined; }
     const validKind = transaction.kind === WagerTransactionKind.Refund
@@ -394,6 +395,7 @@ export class WageringService {
     const validMoney = Money.from({ amount: ref.amount, currency: ref.currency })
       .equals(Money.from({ amount: transaction.amount, currency: transaction.currency }));
     const validContext = ref.status === WagerTransactionStatus.Processed
+      && ref.provider_id === transaction.providerId
       && ref.wallet_id === transaction.walletId
       && ref.player_id === transaction.playerId
       && ref.round_id === transaction.roundId
