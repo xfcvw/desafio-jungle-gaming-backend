@@ -143,7 +143,17 @@ describe('integração do processador de apostas', () => {
     expect(pending.body.status).toBe('PENDING_REFERENCE');
     const reference = await post('/wagering/transactions', wager(wallet.id, 'jogador-fora-de-ordem', 'bet-depois', '20.00'), 'provider-a:bet-depois');
     expect(reference.body.status).toBe('PROCESSED');
+    const directLookup = await orm.em.getConnection().execute<Array<Record<string, unknown>>>(
+      'select provider_id, external_transaction_id, status, wallet_id, player_id, round_id, game_id, amount, currency from wager_transactions where external_transaction_id = ?',
+      ['bet-depois'],
+    );
+    console.info('diagnostico-before-worker', directLookup);
     expect(await apps[0]!.get(WageringService).reprocessPendingReferences()).toBe(1);
+    const pendingAfterWorker = await orm.em.getConnection().execute<Array<Record<string, unknown>>>(
+      'select status, reference_transaction_id, reference_attempts, next_reference_attempt_at, failure_code from wager_transactions where id = ?',
+      [pending.body.transactionId],
+    );
+    console.info('diagnostico-after-worker', pendingAfterWorker);
     expect((await get(`/wagering/transactions/${pending.body.transactionId}`)).body.status).toBe('PROCESSED');
     expect((await get(`/wallets/${wallet.id}`)).body.balance.amount).toBe('100.00');
   });
