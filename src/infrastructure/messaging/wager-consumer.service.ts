@@ -63,8 +63,9 @@ export class WagerConsumerService implements OnModuleInit, OnApplicationShutdown
   private async handle(message: Message, releaseTransientFailures: boolean): Promise<void> {
     const trackingId = message.MessageId ?? message.ReceiptHandle ?? crypto.randomUUID();
     this.inFlight.set(trackingId, message);
+    let envelope: WagerQueueEnvelope | undefined;
     try {
-      const envelope = this.parse(message);
+      envelope = this.parse(message);
       await this.wagering.submitFromQueue({ messageId: envelope.messageId, data: envelope.data });
       await this.sqs.acknowledgeWager(message);
       this.metrics.increment('inbox_messages_processed_total');
@@ -75,7 +76,15 @@ export class WagerConsumerService implements OnModuleInit, OnApplicationShutdown
         this.metrics.increment('inbox_messages_rejected_total');
       } else {
         // No acknowledgement: SQS retries and eventually routes the message to its DLQ.
-        this.logger.error({ message: 'Wager message processing failed; leaving it for retry.', sqsMessageId: message.MessageId, error: error instanceof Error ? error.message : 'unknown' });
+        this.logger.error({
+          message: 'Wager message processing failed; leaving it for retry.',
+          sqsMessageId: message.MessageId,
+          messageId: envelope?.messageId,
+          correlationId: envelope?.data.idempotencyKey,
+          walletId: envelope?.data.walletId,
+          providerId: envelope?.data.providerId,
+          error: error instanceof Error ? error.message : 'unknown',
+        });
         this.metrics.increment('inbox_retries_total');
         if (releaseTransientFailures) await this.sqs.releaseWager(message);
       }

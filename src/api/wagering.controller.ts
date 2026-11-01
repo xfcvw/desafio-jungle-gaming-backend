@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { WagerTransactionKind } from '../domain/transaction';
 import { WageringService } from '../application/wagering.service';
+import { ProviderAuthGuard } from './provider-auth.guard';
 
 class MoneyDto {
   @IsString() @Matches(/^(?:0|[1-9]\d*)\.\d{2}$/) amount!: string;
@@ -29,6 +30,7 @@ class LedgerQueryDto {
 }
 
 @Controller()
+@UseGuards(ProviderAuthGuard)
 export class WageringController {
   public constructor(private readonly wagering: WageringService) {}
   @Post('wallets')

@@ -100,6 +100,14 @@ export class SqsTransport {
     return response.Messages ?? [];
   }
 
+  public async getWagerDlqDepth(): Promise<number> {
+    const response = await this.client.send(new GetQueueAttributesCommand({
+      QueueUrl: this.wagersDlqQueueUrl,
+      AttributeNames: ['ApproximateNumberOfMessages'],
+    }));
+    return Number(response.Attributes?.ApproximateNumberOfMessages ?? 0);
+  }
+
   public async assertReachable(): Promise<void> {
     await Promise.all([this.wagersQueueUrl, this.eventsQueueUrl].map((QueueUrl) => this.client.send(new GetQueueAttributesCommand({ QueueUrl, AttributeNames: ['QueueArn'] }))));
   }

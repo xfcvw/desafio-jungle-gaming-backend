@@ -24,11 +24,11 @@ Carteira, lançamento, status da transação, Inbox e Outbox participam da mesma
 
 ## Observabilidade
 
-Os logs são JSON estruturado e não recebem payload financeiro completo. O endpoint `/metrics` expõe contadores de transações, replays idempotentes, publicação/retry da Outbox e processamento da Inbox. Essas métricas não fazem parte da garantia financeira.
+Os logs são JSON estruturado e não recebem payload financeiro completo. Falhas do consumidor incluem `messageId`, correlação, wallet e provider quando disponíveis. O endpoint `/metrics` expõe contadores de transações, replays idempotentes, conflitos de lock, retries, publicação da Outbox, latência acumulada de processamento, atraso da Outbox e profundidade observada da DLQ. Essas métricas não fazem parte da garantia financeira.
 
 ## Autenticação
 
-Autenticação foi deixada fora do escopo funcional, como permitido pelo enunciado. O ponto de extensão deve ser um `Guard` do Nest integrado a OIDC externo, como Keycloak ou Zitadel, nunca uma tabela própria de senhas. Health checks continuam públicos.
+Autenticação foi deixada fora do escopo funcional, como permitido pelo enunciado. O `ProviderAuthGuard` está aplicado aos endpoints de negócio como ponto de extensão explícito: hoje é um guard no-op para o ambiente de avaliação; em produção deve validar JWT OIDC de Keycloak, Zitadel ou IdP equivalente e associar a identidade ao provider. Nunca deve existir uma tabela própria de senhas. Health checks continuam públicos.
 
 ## Limitações e próximos incrementos
 

@@ -15,4 +15,11 @@ describe('Wallet', () => {
     const wallet = Wallet.open({ id: 'w1', playerId: 'p1', initialBalance: Money.from({ amount: '10.00', currency: 'BRL' }), now: new Date() });
     expect(() => wallet.debit({ entryId: 'l1', transactionId: 't1', money: Money.from({ amount: '10.01', currency: 'BRL' }), now: new Date() })).toThrow(InsufficientFundsError);
   });
+  test('creates a balanced credit entry and increments version once', () => {
+    const wallet = Wallet.open({ id: 'w1', playerId: 'p1', initialBalance: Money.from({ amount: '10.00', currency: 'BRL' }), now: new Date() });
+    const entry = wallet.credit({ entryId: 'l2', transactionId: 't2', money: Money.from({ amount: '5.00', currency: 'BRL' }), now: new Date() });
+    expect(entry.isBalanced()).toBe(true);
+    expect(wallet.balance.toJSON().amount).toBe('15.00');
+    expect(wallet.version).toBe(2);
+  });
 });

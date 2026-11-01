@@ -135,6 +135,18 @@ export class WageringService {
   }
 
   public async submit(input: SubmitWagerInput, idempotencyKey: string, transactionEm?: EntityManager): Promise<SubmitWagerResult> {
+    const startedAt = performance.now();
+    try {
+      return await this.submitInternal(input, idempotencyKey, transactionEm);
+    } catch (error) {
+      if (this.isLockConflict(error)) this.metrics.increment('wallet_lock_conflicts_total');
+      throw error;
+    } finally {
+      this.metrics.observe('wager_processing_latency_ms', performance.now() - startedAt);
+    }
+  }
+
+  private async submitInternal(input: SubmitWagerInput, idempotencyKey: string, transactionEm?: EntityManager): Promise<SubmitWagerResult> {
     if (!idempotencyKey) throw new UnprocessableEntityException('Idempotency-Key header is required.');
     if (input.kind === WagerTransactionKind.Opening) throw new UnprocessableEntityException('OPENING is an internal transaction.');
     const money = Money.from(input.money);
@@ -410,6 +422,9 @@ export class WageringService {
   }
   private isReversal(kind: WagerTransactionKind): boolean { return kind === WagerTransactionKind.Refund || kind === WagerTransactionKind.Rollback; }
   private isUniqueViolation(error: unknown): boolean { return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: string }).code === '23505'; }
+  private isLockConflict(error: unknown): boolean {
+    return typeof error === 'object' && error !== null && 'code' in error && ['40P01', '55P03'].includes(String((error as { code?: string }).code));
+  }
 }
 
 function canonicalHash(value: unknown): string {

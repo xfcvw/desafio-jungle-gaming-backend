@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { InvalidMoneyError } from '../../src/domain/errors';
+import { CurrencyMismatchError, InvalidMoneyError } from '../../src/domain/errors';
 import { Money } from '../../src/domain/money';
 
 describe('Money', () => {
@@ -10,5 +10,10 @@ describe('Money', () => {
   test('rejects fractional scale and scientific notation', () => {
     expect(() => Money.from({ amount: '1.001', currency: 'BRL' })).toThrow(InvalidMoneyError);
     expect(() => Money.from({ amount: '1e2', currency: 'BRL' })).toThrow(InvalidMoneyError);
+  });
+  test('does not combine values from different currencies', () => {
+    const brl = Money.from({ amount: '1.00', currency: 'BRL' });
+    const usd = Money.from({ amount: '1.00', currency: 'USD' });
+    expect(() => brl.add(usd)).toThrow(CurrencyMismatchError);
   });
 });
