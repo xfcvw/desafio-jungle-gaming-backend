@@ -274,13 +274,16 @@ export class WageringService {
 
   /** Reprocessa referências entregues antes da transação original, sem criar novo débito/crédito. */
   public async reprocessPendingReferences(limit = 50): Promise<number> {
-    const pending = await this.em.find(WagerTransactionEntity, {
+    // Este método também é acionado por um worker, fora de uma requisição HTTP.
+    // Portanto usa um contexto próprio e não o EntityManager global compartilhado.
+    const workerEm = this.em.fork();
+    const pending = await workerEm.find(WagerTransactionEntity, {
       status: WagerTransactionStatus.PendingReference,
       $or: [{ nextReferenceAttemptAt: null }, { nextReferenceAttemptAt: { $lte: new Date() } }],
     }, { limit, orderBy: { createdAt: 'asc' } });
     let processed = 0;
     for (const candidate of pending) {
-      const didProcess = await this.em.transactional(async (em) => {
+      const didProcess = await workerEm.transactional(async (em) => {
         const transaction = await em.findOne(WagerTransactionEntity, { id: candidate.id }, { lockMode: LockMode.PESSIMISTIC_WRITE });
         if (!transaction || transaction.status !== WagerTransactionStatus.PendingReference) return false;
         const walletEntity = await em.findOne(WalletEntity, { id: transaction.walletId }, { lockMode: LockMode.PESSIMISTIC_WRITE });

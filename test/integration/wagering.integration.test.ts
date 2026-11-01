@@ -131,7 +131,8 @@ describe('integração do processador de apostas', () => {
     const refund = await post('/wagering/transactions', wager(wallet.id, 'jogador-reversoes', 'refund-reversoes', '30.00', WagerTransactionKind.Refund, 'bet-reversoes'), 'provider-a:refund-reversoes');
     const rollback = await post('/wagering/transactions', wager(wallet.id, 'jogador-reversoes', 'rollback-reversoes', '30.00', WagerTransactionKind.Rollback, 'win-reversoes'), 'provider-a:rollback-reversoes');
     expect([bet.body.status, win.body.status, loss.body.status, refund.body.status, rollback.body.status]).toEqual(['PROCESSED', 'PROCESSED', 'PROCESSED', 'PROCESSED', 'PROCESSED']);
-    expect((await get(`/wallets/${wallet.id}`)).body.balance.amount).toBe('70.00');
+    // 100 - BET 30 + WIN 30 + REFUND 30 - ROLLBACK do WIN 30 = 100.
+    expect((await get(`/wallets/${wallet.id}`)).body.balance.amount).toBe('100.00');
     const ledger = await get(`/wallets/${wallet.id}/ledger?limit=100`);
     expect(ledger.body.entries).toHaveLength(5); // OPENING, BET, WIN, REFUND e ROLLBACK; LOSS não movimenta saldo.
   });
