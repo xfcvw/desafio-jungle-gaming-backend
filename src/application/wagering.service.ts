@@ -28,6 +28,18 @@ export interface ReconciliationResult {
   difference: string; consistent: boolean; checkedEntries: number;
 }
 
+interface ReferenceTransactionRow {
+  id: string;
+  kind: WagerTransactionKind;
+  status: WagerTransactionStatus;
+  wallet_id: string;
+  player_id: string;
+  round_id: string;
+  game_id: string;
+  amount: string;
+  currency: string;
+}
+
 @Injectable()
 export class WageringService {
   public constructor(private readonly em: EntityManager, private readonly metrics: MetricsService) {}
@@ -365,18 +377,16 @@ export class WageringService {
     return processed;
   }
 
-  private async resolveReference(em: EntityManager, transaction: WagerTransactionEntity): Promise<WagerTransactionEntity | undefined> {
+  private async resolveReference(em: EntityManager, transaction: WagerTransactionEntity): Promise<ReferenceTransactionRow | undefined> {
     if (!this.isReversal(transaction.kind)) return undefined;
     if (!transaction.referenceExternalTransactionId) throw new UnprocessableEntityException('A reference transaction is required.');
     // A busca usa a chave única persistida diretamente. Em workers fora do ciclo
     // HTTP, isso evita qualquer interferência do mapa de identidade do ORM.
-    const [referenceRow] = await em.getConnection().execute<Array<{ id: string }>>(
-      'select id from wager_transactions where provider_id = ? and external_transaction_id = ?',
+    const [ref] = await em.getConnection().execute<ReferenceTransactionRow[]>(
+      `select id, kind, status, wallet_id, player_id, round_id, game_id, amount, currency
+       from wager_transactions where provider_id = ? and external_transaction_id = ?`,
       [transaction.providerId, transaction.referenceExternalTransactionId],
     );
-    const ref = referenceRow
-      ? await em.findOne(WagerTransactionEntity, { id: referenceRow.id }, { lockMode: LockMode.PESSIMISTIC_READ, refresh: true })
-      : null;
     if (!ref) { transaction.status = WagerTransactionStatus.PendingReference; return undefined; }
     const validKind = transaction.kind === WagerTransactionKind.Refund
       ? ref.kind === WagerTransactionKind.Bet
@@ -384,10 +394,10 @@ export class WageringService {
     const validMoney = Money.from({ amount: ref.amount, currency: ref.currency })
       .equals(Money.from({ amount: transaction.amount, currency: transaction.currency }));
     const validContext = ref.status === WagerTransactionStatus.Processed
-      && ref.walletId === transaction.walletId
-      && ref.playerId === transaction.playerId
-      && ref.roundId === transaction.roundId
-      && ref.gameId === transaction.gameId
+      && ref.wallet_id === transaction.walletId
+      && ref.player_id === transaction.playerId
+      && ref.round_id === transaction.roundId
+      && ref.game_id === transaction.gameId
       && validMoney;
     const alreadyReversed = await em.findOne(WagerTransactionEntity, { referenceTransactionId: ref.id, kind: transaction.kind, status: WagerTransactionStatus.Processed });
     if (!validKind || !validContext || alreadyReversed) {
@@ -398,7 +408,7 @@ export class WageringService {
     return ref;
   }
 
-  private directionFor(transaction: WagerTransactionEntity, reference?: WagerTransactionEntity): LedgerDirection | undefined {
+  private directionFor(transaction: WagerTransactionEntity, reference?: Pick<ReferenceTransactionRow, 'kind'>): LedgerDirection | undefined {
     switch (transaction.kind) {
       case WagerTransactionKind.Bet: return LedgerDirection.Debit;
       case WagerTransactionKind.Win:
