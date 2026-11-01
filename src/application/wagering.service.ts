@@ -368,12 +368,23 @@ export class WageringService {
   private async resolveReference(em: EntityManager, transaction: WagerTransactionEntity): Promise<WagerTransactionEntity | undefined> {
     if (!this.isReversal(transaction.kind)) return undefined;
     if (!transaction.referenceExternalTransactionId) throw new UnprocessableEntityException('A reference transaction is required.');
-    const ref = await em.findOne(WagerTransactionEntity, { providerId: transaction.providerId, externalTransactionId: transaction.referenceExternalTransactionId });
+    const ref = await em.findOne(
+      WagerTransactionEntity,
+      { providerId: transaction.providerId, externalTransactionId: transaction.referenceExternalTransactionId },
+      { refresh: true },
+    );
     if (!ref) { transaction.status = WagerTransactionStatus.PendingReference; return undefined; }
     const validKind = transaction.kind === WagerTransactionKind.Refund
       ? ref.kind === WagerTransactionKind.Bet
       : [WagerTransactionKind.Bet, WagerTransactionKind.Win, WagerTransactionKind.Refund].includes(ref.kind);
-    const validContext = ref.status === WagerTransactionStatus.Processed && ref.walletId === transaction.walletId && ref.playerId === transaction.playerId && ref.roundId === transaction.roundId && ref.currency === transaction.currency && ref.amount === transaction.amount;
+    const validMoney = Money.from({ amount: ref.amount, currency: ref.currency })
+      .equals(Money.from({ amount: transaction.amount, currency: transaction.currency }));
+    const validContext = ref.status === WagerTransactionStatus.Processed
+      && ref.walletId === transaction.walletId
+      && ref.playerId === transaction.playerId
+      && ref.roundId === transaction.roundId
+      && ref.gameId === transaction.gameId
+      && validMoney;
     const alreadyReversed = await em.findOne(WagerTransactionEntity, { referenceTransactionId: ref.id, kind: transaction.kind, status: WagerTransactionStatus.Processed });
     if (!validKind || !validContext || alreadyReversed) {
       transaction.status = WagerTransactionStatus.Rejected;

@@ -141,8 +141,10 @@ describe('integração do processador de apostas', () => {
     const wallet = await createWallet('jogador-fora-de-ordem', '100.00');
     const pending = await post('/wagering/transactions', wager(wallet.id, 'jogador-fora-de-ordem', 'refund-antes', '20.00', WagerTransactionKind.Refund, 'bet-depois'), 'provider-a:refund-antes');
     expect(pending.body.status).toBe('PENDING_REFERENCE');
-    await post('/wagering/transactions', wager(wallet.id, 'jogador-fora-de-ordem', 'bet-depois', '20.00'), 'provider-a:bet-depois');
+    const reference = await post('/wagering/transactions', wager(wallet.id, 'jogador-fora-de-ordem', 'bet-depois', '20.00'), 'provider-a:bet-depois');
+    expect(reference.body.status).toBe('PROCESSED');
     expect(await apps[0]!.get(WageringService).reprocessPendingReferences()).toBe(1);
+    expect((await get(`/wagering/transactions/${pending.body.transactionId}`)).body.status).toBe('PROCESSED');
     expect((await get(`/wallets/${wallet.id}`)).body.balance.amount).toBe('100.00');
   });
 
